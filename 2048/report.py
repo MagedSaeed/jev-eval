@@ -2,6 +2,8 @@
 
     python report.py            # one row per run
     python report.py --best     # best run per model
+
+Baselines (algorithms/*/results/) are listed in their own table under the models.
 """
 
 import argparse
@@ -16,7 +18,9 @@ from common.resume import read_records  # noqa: E402
 
 def load_runs():
     runs = []
-    for path in sorted(ROOT.glob("models/*/results/*.jsonl")):
+    paths = [(p, False) for p in ROOT.glob("models/*/results/*.jsonl")]
+    paths += [(p, True) for p in ROOT.glob("algorithms/*/results/*.jsonl")]
+    for path, baseline in sorted(paths):
         records = read_records(path)
         if not records:
             continue
@@ -29,7 +33,7 @@ def load_runs():
                    "score": last.get("score"), "t_model": last.get("t_model"), "cost": last.get("cost"),
                    "avg_move_s": (last["t_model"] / last["n"]) if last.get("n") else None,
                    "failed_attempts": None, "milestones": {}}
-        runs.append({"file": str(path.relative_to(ROOT)), "meta": meta, "end": end})
+        runs.append({"file": str(path.relative_to(ROOT)), "meta": meta, "end": end, "baseline": baseline})
     return runs
 
 
@@ -55,7 +59,18 @@ def main():
         runs = list(best.values())
     runs.sort(key=lambda r: (-(r["end"]["max_tile"] or 0), -(r["end"]["score"] or 0)))
 
-    header = ["model", "seed", "max", "score", "moves", "avg/move", "t@2048", "t@max", "bad", "cost", "end"]
+    models = [r for r in runs if not r["baseline"]]
+    baselines = [r for r in runs if r["baseline"]]
+    print_table(models, "model")
+    if not models:
+        print("(no runs yet - try: python play.py qwen3.8-flash)")
+    if baselines:
+        print()
+        print_table(baselines, "baseline")
+
+
+def print_table(runs, name_col):
+    header = [name_col, "seed", "max", "score", "moves", "avg/move", "t@2048", "t@max", "bad", "cost", "end"]
     rows = []
     for r in runs:
         m, e = r["meta"], r["end"]
@@ -75,8 +90,6 @@ def main():
     print("  ".join("-" * w for w in widths))
     for row in rows:
         print("  ".join(c.ljust(w) for c, w in zip(row, widths)))
-    if not rows:
-        print("(no runs yet - try: python play.py qwen3.8-flash)")
 
 
 if __name__ == "__main__":

@@ -12,9 +12,14 @@ from .openrouter import make_client
 from .prompts import PROMPT_VERSION, build_messages, parse_move
 
 
+class PlayerUnavailable(Exception):
+    """make_player() can't build this player here (e.g. a native library isn't built yet)."""
+
+
 class Player:
     name = "base"
     model_id = None
+    stop_at_tile = None  # e.g. 2048: the runner ends the game ("target_tile") once this tile appears
 
     def decide(self, board, score, legal, feedback=None):
         raise NotImplementedError

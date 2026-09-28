@@ -11,7 +11,7 @@ from pathlib import Path
 
 from .game import Game
 
-FINISHED = {"game_over", "max_moves"}  # these games are over; everything else can continue
+FINISHED = {"game_over", "max_moves", "target_tile"}  # these games are over; everything else can continue
 MILESTONES = [2 ** k for k in range(7, 18)]  # 128 ... 131072
 
 

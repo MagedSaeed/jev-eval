@@ -98,6 +98,9 @@ def run_game(player, results_dir, seed=0, max_moves=10000, budget_usd=3.0, max_a
                 if stop is not None and stop.is_set():
                     reason = "interrupted"
                     break
+                if player.stop_at_tile and game.max_tile >= player.stop_at_tile:
+                    reason = "target_tile"
+                    break
                 legal = game.legal_moves()
                 if not legal:
                     reason = "game_over"

@@ -8,7 +8,8 @@
     python play.py --list
 
 Each model lives in models/<name>/player.py (exposing make_player()); logs go to
-models/<name>/results/<timestamp>_seed<seed>.jsonl.
+models/<name>/results/<timestamp>_seed<seed>.jsonl. Non-LLM reference players live the same
+way in algorithms/<name>/ and are run and named just like models.
 """
 
 import argparse
@@ -20,24 +21,29 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-MODELS = ROOT / "models"
+PLAYER_DIRS = (ROOT / "models", ROOT / "algorithms")  # a name in models/ wins over algorithms/
 sys.path.insert(0, str(ROOT))
 
 from tqdm import tqdm  # noqa: E402
 
+from common.players import PlayerUnavailable  # noqa: E402
 from common.resume import ResumeError, find_finished, find_resumable  # noqa: E402
 from common.runner import run_game  # noqa: E402
 
 
+def player_dir(name):
+    return next((d / name for d in PLAYER_DIRS if (d / name / "player.py").exists()), None)
+
+
 def available_models():
-    return sorted(p.parent.name for p in MODELS.glob("*/player.py"))
+    return sorted({p.parent.name for d in PLAYER_DIRS for p in d.glob("*/player.py")})
 
 
 def load_player(name):
-    path = MODELS / name / "player.py"
-    if not path.exists():
+    folder = player_dir(name)
+    if not folder:
         raise SystemExit(f"unknown model {name!r}; available: {', '.join(available_models())}")
-    spec = importlib.util.spec_from_file_location(f"models.{name}.player", path)
+    spec = importlib.util.spec_from_file_location(f"{folder.parent.name}.{name}.player", folder / "player.py")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module.make_player()
@@ -45,7 +51,7 @@ def load_player(name):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("models", nargs="*", help="model folder names under models/ (default: all)")
+    ap.add_argument("models", nargs="*", help="folder names under models/ or algorithms/ (default: all)")
     ap.add_argument("--list", action="store_true", help="list available models")
     ap.add_argument("--seed", type=int, nargs="+", default=[0], help="one game per seed")
     ap.add_argument("--max-moves", type=int, default=10000)
@@ -64,13 +70,22 @@ def main():
     if args.list:
         print("\n".join(available_models()))
         return
+    requested = bool(args.models)
     args.models = args.models or available_models()
 
-    players = {name: load_player(name) for name in args.models}
+    players = {}
+    for name in args.models:
+        try:
+            players[name] = load_player(name)
+        except PlayerUnavailable as e:
+            if requested:
+                raise SystemExit(str(e))
+            tqdm.write(f"{name}: skipped ({e})")
+    args.models = list(players)
     stop = threading.Event()
 
     def play(name, seed, position, leave):
-        results = MODELS / name / "results"
+        results = player_dir(name) / "results"
         done = None if args.rerun else find_finished(results, seed)
         if done:
             tqdm.write(f"{name} seed={seed}: already finished in {done.relative_to(ROOT)}, skipping (use --rerun to play again)")

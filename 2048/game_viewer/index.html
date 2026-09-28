@@ -10,11 +10,13 @@
   --bg: #f6f4ef; --panel: #fffdf8; --ink: #2b2620; --muted: #7d7468; --line: #e4ded3;
   --accent: #c2410c; --board: #bbada0; --cell: #cdc1b4; --good: #15803d; --bad: #b91c1c;
   --mono-logo: none; --raised: #ffffff; --shadow: rgb(60 45 30 / .14);
+  --base: #3f6c9e;  /* baselines: a cool blue against the warm page, so they never pass for a model */
+  --solve: #7c3aed; /* the solver (a real search algorithm): violet, apart from the bots, models and tiles */
 }
 @media (prefers-color-scheme: dark) {
   :root { --bg: #161412; --panel: #1f1c19; --ink: #efe9e0; --muted: #9b9185; --line: #332e29;
           --accent: #fb923c; --board: #4a4139; --cell: #5c524a; --good: #4ade80; --bad: #f87171;
-          --mono-logo: invert(1); --raised: #2a2622; --shadow: rgb(0 0 0 / .45); }
+          --mono-logo: invert(1); --raised: #2a2622; --shadow: rgb(0 0 0 / .45); --base: #86aedb; --solve: #b69cff; }
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--ink);
@@ -117,7 +119,38 @@ button.icon svg { transition: transform .2s; }
 #scrub { flex: 1; min-width: 160px; accent-color: var(--accent); }
 #clock { font-variant-numeric: tabular-nums; min-width: 150px; text-align: right; }
 
-#boards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+#boards { display: flex; flex-direction: column; gap: 14px; }
+/* rows of cards centred in every tab, on one card width (a wrapped, partial last row is centred too) */
+.board-grid { display: flex; flex-wrap: wrap; justify-content: center; gap: 14px; }
+.board-grid > .card { flex: 0 1 300px; min-width: 260px; }
+
+/* baselines: simple bots shown for reference. Their own row under the models, a dashed blue-tinted
+   card and an (i) button that explains the method. */
+.group-head { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; margin-top: 6px; }
+.group-head::after { content: ""; flex: 1; border-top: 1px dashed color-mix(in srgb, var(--base) 40%, var(--line)); }
+.tag { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; padding: 1px 6px;
+       border-radius: 4px; color: var(--base); background: color-mix(in srgb, var(--base) 14%, transparent); white-space: nowrap; }
+.card.baseline { border-style: dashed; border-color: color-mix(in srgb, var(--base) 50%, var(--line));
+                 background: color-mix(in srgb, var(--base) 5%, var(--panel)); }
+.baseline .logo.letter, .model-row.baseline .logo.letter, tr.baseline .logo.letter { background: var(--base); }
+button.info { flex: none; width: 17px; height: 17px; padding: 0; border-radius: 50%; display: inline-flex;
+              align-items: center; justify-content: center; font: italic 700 11px/1 Georgia, serif;
+              color: var(--base); background: transparent; border: 1px solid color-mix(in srgb, var(--base) 55%, transparent); }
+button.info:hover, button.info:focus-visible { color: #fff; background: var(--base); border-color: var(--base); }
+#tip.wide { max-width: 320px; }
+/* the solver: a gradient ring with a soft violet glow and a spark logo, so it reads as the algorithm,
+   not one more bot */
+.card.solver { border: 1.5px solid transparent;
+               background: linear-gradient(color-mix(in srgb, var(--solve) 5%, var(--panel)), color-mix(in srgb, var(--solve) 5%, var(--panel))) padding-box,
+                           linear-gradient(135deg, var(--solve), color-mix(in srgb, var(--solve) 35%, var(--accent))) border-box;
+               box-shadow: 0 0 0 4px color-mix(in srgb, var(--solve) 10%, transparent), 0 10px 30px color-mix(in srgb, var(--solve) 18%, transparent); }
+.logo.spark { display: inline-flex; align-items: center; justify-content: center; color: #fff;
+              background: linear-gradient(135deg, var(--solve), color-mix(in srgb, var(--solve) 45%, var(--accent))); }
+.solver button.info, tr.solver button.info { color: var(--solve); border-color: color-mix(in srgb, var(--solve) 55%, transparent); }
+.solver button.info:hover, .solver button.info:focus-visible { color: #fff; background: var(--solve); border-color: var(--solve); }
+tr.solver { background: color-mix(in srgb, var(--solve) 7%, transparent); }
+tr.solver:hover { background: color-mix(in srgb, var(--solve) 13%, transparent); }
+tr.solver td:first-child { box-shadow: inset 3px 0 0 var(--solve); }
 .card { padding: 12px; transition: opacity .15s, box-shadow .15s; }
 /* drag-to-reorder affordance: a grip that wakes up on hover, a grab cursor on the header,
    and a dashed placeholder where the dragged card will land */
@@ -130,6 +163,40 @@ button.icon svg { transition: transform .2s; }
 .card-head:hover .grip { color: var(--accent); }
 .card.dragging { opacity: .4; outline: 2px dashed var(--accent); outline-offset: 3px; box-shadow: none; }
 .picker-head { display: flex; align-items: baseline; justify-content: space-between; }
+/* Baselines tab: same boards and controls, no sidebar; a bar picks LLM runs to compare against */
+#games.solo, html[data-view="baselines"] #games { grid-template-columns: 1fr; }
+#games.solo #picker, html[data-view="baselines"] #picker { display: none; }
+html[data-view="leaderboard"] #games { display: none; }  /* set before the first paint, see the header script */
+/* the Compare-with divider carries the controls: the LLM picker and a triangle that moves the LLMs
+   above or below the algorithms */
+.llm-head { font-size: 12px; }
+button.swap { border: 1px solid var(--line); background: var(--bg); color: var(--accent); padding: 4px 6px; line-height: 0; border-radius: 6px; }
+button.swap:hover, button.swap:focus-visible { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--bg)); }
+.dd { position: relative; }
+.dd-btn { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
+.dd-btn svg, .dd-more svg { transition: transform .15s; }
+.dd-btn[aria-expanded="true"] svg, .dd-more[aria-expanded="true"] svg { transform: rotate(180deg); }
+.dd-btn .count { font-size: 11px; font-weight: 700; min-width: 18px; padding: 0 5px; border-radius: 99px;
+                 background: var(--accent); color: #fff; text-align: center; }
+.dd-menu { position: absolute; z-index: 50; top: calc(100% + 6px); left: 50%; transform: translateX(-50%); width: 330px; max-width: calc(100vw - 32px);
+           max-height: min(440px, 70vh); overflow: auto; padding: 6px; background: var(--raised); border: 1px solid var(--line);
+           border-radius: 10px; box-shadow: 0 8px 24px var(--shadow), 0 1px 2px var(--shadow); }
+.dd-item { display: grid; grid-template-columns: 1fr auto; align-items: center; border-radius: 6px; }
+.dd-item:hover, .dd-item.open { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.dd-row { display: flex; align-items: center; gap: 8px; padding: 7px 8px; cursor: pointer; min-width: 0; }
+.dd-row input, .dd-runs input { accent-color: var(--accent); margin: 0; flex: none; }
+.dd-row .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dd-row .meta { margin-left: auto; color: var(--muted); font-size: 12px; white-space: nowrap; }
+.dd-more { border: 0; background: none; padding: 7px; margin-right: 2px; color: var(--muted); line-height: 0; border-radius: 6px; }
+.dd-more:hover, .dd-more:focus-visible { color: var(--accent); }
+.dd-runs { grid-column: 1 / -1; display: grid; gap: 1px; padding: 0 8px 8px 30px; font-size: 12px; font-variant-numeric: tabular-nums; }
+.dd-runs label { display: flex; align-items: center; gap: 7px; padding: 3px 6px; border-radius: 5px; cursor: pointer; color: var(--muted); }
+.dd-runs label:hover { color: var(--ink); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.dd-runs input:checked + span { color: var(--ink); font-weight: 600; }
+.dd-foot { display: flex; justify-content: space-between; border-top: 1px solid var(--line); margin-top: 4px; padding: 6px 0 0; }
+.dd-menu .empty { padding: 14px; }
+#games.solo .group-head::before { content: ""; flex: 1; border-top: 1px dashed color-mix(in srgb, var(--base) 40%, var(--line)); }
+.tag.llm { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
 button.link { border: 0; background: none; padding: 0 6px; color: var(--accent); font-size: 12px; }
 button.link:hover { text-decoration: underline; }
 .card-head { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 6px 8px; margin-bottom: 8px; }
@@ -186,6 +253,13 @@ th button.sort { all: unset; cursor: pointer; display: inline-flex; align-items:
 th button.sort:hover, th button.sort.on { color: var(--ink); }
 th button.sort:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
 th .arrow { font-size: 9px; min-width: 8px; }
+tbody tr.group { cursor: default; }
+tbody tr.group:hover { background: none; }
+tr.group td { padding-top: 16px; border-bottom-style: dashed; }
+tr.group .group-head { margin: 0; }
+tr.group .group-head::after { display: none; }
+tr.baseline { background: color-mix(in srgb, var(--base) 5%, transparent); }
+tr.baseline:hover { background: color-mix(in srgb, var(--base) 11%, transparent); }
 </style>
 </head>
 <body>
@@ -194,7 +268,15 @@ th .arrow { font-size: 9px; min-width: 8px; }
   <nav class="tabs" role="tablist">
     <button role="tab" data-view="games" aria-selected="true">Games</button>
     <button role="tab" data-view="leaderboard" aria-selected="false">Leaderboard</button>
+    <button role="tab" data-view="baselines" aria-selected="false">Baselines</button>
   </nav>
+  <script>  // show the URL's tab while the page is still parsing, before anything is painted
+    { const v = location.hash.slice(1);
+      if (v === "baselines" || v === "leaderboard") {
+        document.documentElement.dataset.view = v;
+        document.querySelectorAll(".tabs button").forEach((b) => b.setAttribute("aria-selected", b.dataset.view === v));
+      } }
+  </script>
 </header>
 
 <div id="games" class="layout">
@@ -223,7 +305,7 @@ th .arrow { font-size: 9px; min-width: 8px; }
 
 <section id="leaderboard" hidden>
   <div class="lb-head">
-    <p># ranks by max tile, then score. Click a column to sort, a row to watch that game.</p>
+    <p># ranks the models by max tile, then score; baselines are listed under them, unranked. Click a column to sort, a row to watch that game.</p>
     <div class="seg" role="group" aria-label="Rows">
       <button data-scope="best" aria-selected="true">Best per model</button>
       <button data-scope="all" aria-selected="false">All runs</button>
@@ -252,10 +334,18 @@ const POLL_MS = 3000;
 const MILESTONES = Array.from({ length: 11 }, (_, k) => 2 ** (k + 7));  // 128 ... 131072
 const LIVE_IDLE_S = 120;  // an unfinished log untouched this long is a dead game, not a live one
 const isLive = (r) => r && r.end.reason === "incomplete" && r.idle_s < LIVE_IDLE_S;
+const isBaseline = (model) => runs.some((r) => r.model === model && r.baseline);
+const isSolver = (r) => r.meta && r.meta.kind === "solver";
+const nameOf = (r) => (r.meta && r.meta.display_name) || r.model;
+// "target_tile": the player stops on purpose at a tile (the solver stops at 2048)
+const endLabel = (g) => g.end.reason === "target_tile" ? `reached ${(g.meta && g.meta.stop_at_tile) || "target"}` : g.end.reason.replace("_", " ");
+// Two tabs share the boards: "games" shows the models (minus hidden ones); "baselines" shows the
+// baselines plus whichever LLMs were added to compare with them, above or below.
+let boardView = "games";
 
 const key = (r) => `${r.model}/${r.file}`;
 const fmtT = (s) => s == null ? "–" : s < 60 ? `${s.toFixed(1)}s` : s < 3600 ? `${Math.floor(s / 60)}m ${String(Math.floor(s % 60)).padStart(2, "0")}s` : `${(s / 3600).toFixed(2)}h`;
-const fmt$ = (c) => c == null ? "–" : c < 0.01 ? `$${c.toFixed(4)}` : `$${c.toFixed(2)}`;
+const fmt$ = (c) => c == null ? "–" : c === 0 ? "$0" : c < 0.01 ? `$${c.toFixed(4)}` : `$${c.toFixed(2)}`;
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 
 // ---- tooltips ----------------------------------------------------------------
@@ -271,6 +361,7 @@ function showTip(el, pointerX) {
   if (!text || !el.isConnected || (el.dataset.tipIf && !el.closest(el.dataset.tipIf))
       || (el.hasAttribute("data-tip-overflow") && el.scrollWidth <= el.clientWidth)) return hideTip();
   const [head, ...rest] = text.split("\n");
+  tip.classList.toggle("wide", el.hasAttribute("data-tip-wide"));
   tip.innerHTML = rest.length ? `<b>${esc(head)}</b><span class="sub">${esc(rest.join(" "))}</span>` : esc(head);
   const r = el.getBoundingClientRect(), t = tip.getBoundingClientRect(), M = 8, G = 8;
   const W = document.documentElement.clientWidth, H = document.documentElement.clientHeight;  // minus scrollbars
@@ -325,6 +416,16 @@ document.addEventListener("focusin", (ev) => {
   if (el) { hideTip(); tipFor = el; showTip(el); }
 });
 document.addEventListener("focusout", hideTip);
+// (i) buttons also open on click/tap (touch has no hover); capture so a leaderboard row doesn't open too
+document.addEventListener("click", (ev) => {
+  const b = ev.target.closest("button.info");
+  if (!b) return;
+  ev.stopPropagation();
+  ev.preventDefault();
+  hideTip();
+  tipFor = b;
+  showTip(b);
+}, true);
 document.addEventListener("pointerdown", hideTip);
 document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") hideTip(); });
 addEventListener("scroll", hideTip, true);
@@ -358,7 +459,10 @@ const PROVIDER_LOGO = {  // provider -> [icon name, monochrome?]
   mistralai: ["mistral-color", false], "meta-llama": ["meta-color", false], moonshotai: ["moonshot", true],
 };
 
+const SPARK = `<svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true"><path d="M6 0l1.4 4.6L12 6l-4.6 1.4L6 12l-1.4-4.6L0 6l4.6-1.4z"/></svg>`;
+
 function logoHTML(r) {
+  if (isSolver(r)) return `<span class="logo spark">${SPARK}</span>`;
   const letter = `<span class="logo letter" aria-hidden="true">${esc(r.model[0].toUpperCase())}</span>`;
   const [icon, mono] = PROVIDER_LOGO[(r.meta.model_id || "").split("/")[0]] || [];
   const src = r.local_logo ? `/logos/${encodeURIComponent(r.model)}` : icon ? `${LOBE}${icon}.svg` : null;
@@ -367,6 +471,108 @@ function logoHTML(r) {
   return `<img class="logo${mono && !r.local_logo ? " mono" : ""}" src="${src}" alt="" loading="lazy"
     onerror="this.outerHTML='${letter.replace(/"/g, "&quot;")}'">`;
 }
+
+// Baselines: an (i) button explains the method; the text comes from the player's own description
+const BASELINES_ABOUT = "Algorithms & baselines\nNon-LLM players on the same seeds as the models: simple bots that show what a score is worth (a model that can't beat them isn't adding much), and expectimax search, a real algorithm, as the ceiling. Their moves are timed at a fixed 0.25s (simulated), a bit faster than the fastest model.";
+const infoButton = (title, text) =>
+  `<button class="info" type="button" aria-label="About ${esc(title)}" data-tip="${esc(text)}" data-tip-wide>i</button>`;
+const runInfo = (r) => infoButton(nameOf(r), `${nameOf(r)}\n${r.meta.description || "A baseline player."}`);
+const groupHead = () => `<div class="group-head"><span class="tag">Algorithms &amp; baselines</span>${infoButton("algorithms and baselines", BASELINES_ABOUT)}</div>`;
+
+const llmHead = () => `<div class="group-head llm-head"></div>`;  // filled by renderCompare()
+const TRIANGLE = `<svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor" aria-hidden="true"><path d="M5 1.5 9.5 8.5h-9z"/></svg>`;
+
+// LLMs added in the Baselines tab, and whether they go above or below the baselines (remembered per browser)
+const compare = load("baselineCompare", []);
+let comparePos = load("baselineComparePos", "above");
+
+// "Choose LLMs" popover: a checkbox per LLM, and a chevron that opens that LLM's runs to pick
+// which seed to show (collapsed until asked). Open/expanded state survives re-renders.
+let ddOpen = false;
+const ddExpanded = new Set();
+const CHEVRON = `<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 4.5 6 7.5l3-3"/></svg>`;
+const attr = (name, v) => `[${name}="${CSS.escape(v)}"]`;
+
+function compareItem(m, list) {
+  const best = bestRun(list), open = ddExpanded.has(m), cur = chosen.get(m) || key(best);
+  const runsBySeed = list.slice().sort((a, b) => a.meta.seed - b.meta.seed || a.file.localeCompare(b.file));
+  return `<div class="dd-item${open ? " open" : ""}">
+    <label class="dd-row"><input type="checkbox" data-toggle="${esc(m)}" ${compare.includes(m) ? "checked" : ""}>${logoHTML(best)}<span class="name">${esc(m)}</span><span class="meta">${list.length} run${list.length > 1 ? "s" : ""} · best ${best.end.max_tile}</span></label>
+    <button type="button" class="dd-more" data-expand="${esc(m)}" aria-expanded="${open}" aria-label="Runs of ${esc(m)}" data-tip="${open ? "Hide runs" : "Pick a run"}">${CHEVRON}</button>
+    ${open ? `<div class="dd-runs" role="radiogroup" aria-label="Run of ${esc(m)}">${runsBySeed.map((r) =>
+      `<label><input type="radio" name="run-${esc(m)}" data-run="${esc(key(r))}" data-model="${esc(m)}" ${key(r) === cur ? "checked" : ""}><span>seed ${r.meta.seed} · ${r.end.max_tile} · ${r.end.score}${r === best ? " ★" : ""}${isLive(r) ? " ●" : ""}</span></label>`).join("")}</div>` : ""}
+  </div>`;
+}
+
+function renderCompare(focus) {
+  const by = runsByModel();
+  const llms = [...by.keys()].filter((m) => !isBaseline(m));
+  const added = compare.filter((m) => llms.includes(m));
+  const head = document.querySelector(".llm-head");
+  if (!head) return;
+  const to = comparePos === "above" ? "below" : "above";
+  head.innerHTML = `<span class="tag llm">Compare with</span>
+    <div class="dd">
+      <button type="button" class="dd-btn" aria-haspopup="true" aria-expanded="${ddOpen}">Choose LLMs${added.length ? `<span class="count">${added.length}</span>` : ""}${CHEVRON}</button>
+      <div class="dd-menu" ${ddOpen ? "" : "hidden"}>
+        ${llms.map((m) => compareItem(m, by.get(m))).join("") || `<div class="empty">No LLM runs yet.</div>`}
+        <div class="dd-foot"><button type="button" class="link" data-all>Select all</button><button type="button" class="link" data-none>Clear</button></div>
+      </div>
+    </div>
+    <button type="button" class="swap" data-swap aria-label="Move the LLMs ${to} the algorithms" data-tip="Move the LLMs ${to} the algorithms">${
+      to === "below" ? TRIANGLE.replace("<svg", '<svg style="transform: rotate(180deg)"') : TRIANGLE}</button>`;
+  if (focus) head.querySelector(focus)?.focus();
+}
+
+function setCompare(models, focus, rebuild = false) {
+  compare.splice(0, compare.length, ...models);
+  store("baselineCompare", compare);
+  hideTip();
+  renderCompare(focus);
+  syncSelection(rebuild).then(() => renderCompare(focus));  // a rebuild redraws the divider
+}
+
+$("#boards").addEventListener("change", (ev) => {
+  const t = ev.target;
+  if (!t.closest(".llm-head")) return;
+  if (t.dataset.toggle) {
+    const m = t.dataset.toggle;
+    setCompare(t.checked ? [...compare, m] : compare.filter((x) => x !== m), attr("data-toggle", m));
+  } else if (t.dataset.run) {  // picking a run also adds its LLM
+    chosen.set(t.dataset.model, t.dataset.run);
+    setCompare(compare.includes(t.dataset.model) ? compare : [...compare, t.dataset.model], attr("data-run", t.dataset.run));
+  }
+});
+$("#boards").addEventListener("click", (ev) => {
+  const t = ev.target.closest(".llm-head button");
+  if (!t) return;
+  if (t.classList.contains("dd-btn")) {
+    ddOpen = !ddOpen;
+    hideTip();
+    renderCompare(".dd-btn");
+  } else if (t.dataset.expand) {
+    const m = t.dataset.expand;
+    ddExpanded.has(m) ? ddExpanded.delete(m) : ddExpanded.add(m);
+    hideTip();
+    renderCompare(attr("data-expand", m));
+  } else if (t.hasAttribute("data-all")) {
+    setCompare([...runsByModel().keys()].filter((m) => !isBaseline(m)), "[data-all]");
+  } else if (t.hasAttribute("data-none")) {
+    setCompare([], "[data-none]");
+  } else if (t.hasAttribute("data-swap")) {
+    comparePos = comparePos === "above" ? "below" : "above";
+    store("baselineComparePos", comparePos);
+    hideTip();
+    syncSelection(true).then(() => renderCompare("[data-swap]"));  // same runs, new layout: rebuild the cards
+  }
+});
+// the popover closes on a click outside it or on Escape
+document.addEventListener("click", (ev) => {
+  if (ddOpen && !ev.target.closest(".dd")) { ddOpen = false; renderCompare(); }
+});
+document.addEventListener("keydown", (ev) => {
+  if (ddOpen && ev.key === "Escape") { ddOpen = false; renderCompare(".dd-btn"); }
+});
 
 // per-browser memory of hidden models; storage may be unavailable, so never rely on it
 const hidden = new Set(load("hiddenModels", []));
@@ -394,6 +600,7 @@ function renderModels() {
   if (!by.size) { root.innerHTML = `<div class="empty">No runs yet.<br>Run <code>python play.py</code></div>`; return; }
   root.innerHTML = "";
   for (const [model, list] of by) {
+    if (isBaseline(model)) continue;  // baselines have their own tab
     const best = bestRun(list);
     const row = document.createElement("label");
     row.className = "model-row" + (hidden.has(model) ? " off" : "") + (list.some(isLive) ? " live" : "");
@@ -413,13 +620,17 @@ function renderModels() {
   }
 }
 
+const onScreen = (model) => boardView === "baselines"
+  ? isBaseline(model) || compare.includes(model)
+  : !isBaseline(model) && !hidden.has(model);
+
 // selected = the chosen run of every visible model. A model's default is its best run;
 // a pick from the card's dropdown sticks until that run disappears.
 async function syncSelection(force = false) {
   const next = new Set();
   for (const [model, list] of runsByModel()) {
     if (!chosen.has(model) || !list.some((r) => key(r) === chosen.get(model))) chosen.set(model, key(bestRun(list)));
-    if (!hidden.has(model)) next.add(chosen.get(model));
+    if (onScreen(model)) next.add(chosen.get(model));
   }
   const same = !force && next.size === selected.size && [...next].every((k) => selected.has(k));
   if (same) return refreshSeedMenus();
@@ -500,6 +711,7 @@ async function poll() {
     if (JSON.stringify(fresh) !== JSON.stringify(runs)) {
       runs = fresh;
       renderModels();
+      renderCompare();
       renderLeaderboard();
       await syncSelection();  // new models/runs; rebuilds cards only if what's on screen changed
     }
@@ -534,41 +746,64 @@ function buildBoards() {
   for (const g of loaded.values()) resetBoard(g);
   const root = $("#boards");
   root.innerHTML = "";
-  if (!selected.size) {
-    root.innerHTML = `<div class="empty panel">${runs.length ? "All models are hidden. Switch some on in the list on the left." : "No runs yet."}</div>`;
+  const keys = [...selected];
+  const bases = keys.filter((k) => loaded.get(k).run.baseline);
+  if (!selected.size || (boardView === "baselines" && !bases.length)) {
+    root.innerHTML = `<div class="empty panel">${boardView === "baselines"
+      ? "No baseline runs yet. Run <code>python play.py random fixed-order greedy --seed 1 2 3 4 5</code>"
+      : runs.length ? "All models are hidden. Switch some on in the list on the left." : "No runs yet."}</div>`;
     return;
   }
-  for (const k of selected) {
-    const g = loaded.get(k);
-    const model = g.run.model;
-    const card = document.createElement("div");
-    card.className = "card panel";
-    card.dataset.model = model;
-    card.innerHTML = `
-      <div class="card-head">
-        <div class="card-title"><span class="grip" data-tip="Drag to reorder">${GRIP}</span>${logoHTML(g.run)}<span class="name" data-tip="${esc(model)}" data-tip-overflow>${esc(model)}</span></div>
-        <span class="status"></span>
-        <select class="seed" aria-label="Run of ${esc(model)}">${seedOptions(model)}</select>
-      </div>
-      <div class="grid">${"<div class='cell'></div>".repeat(16)}<div class="tiles"></div></div>
-      <div class="stats">
-        <div class="stat"><div class="k">Move</div><div class="v" data-s="move"></div></div>
-        <div class="stat"><div class="k">Model time</div><div class="v" data-s="time"></div></div>
-        <div class="stat"><div class="k">Avg / move</div><div class="v" data-s="avg"></div></div>
-        <div class="stat"><div class="k">Max tile</div><div class="v" data-s="max"></div></div>
-        <div class="stat"><div class="k">Score</div><div class="v" data-s="score"></div></div>
-        <div class="stat"><div class="k">Cost</div><div class="v" data-s="cost"></div></div>
-      </div>
-      <div class="chips"></div>`;
-    card.querySelector("select.seed").addEventListener("change", (ev) => {
-      chosen.set(model, ev.target.value);
-      syncSelection();
-    });
-    g.card = card;
-    g.layer = card.querySelector(".tiles");
-    makeDraggable(card);
-    root.appendChild(card);
-  }
+  // Baselines tab: the baselines in one row and the compared LLMs in another, each under a divider
+  // the solver leads the baselines row (its own card style sets it apart); LLMs above or below
+  const llms = keys.filter((k) => !loaded.get(k).run.baseline);
+  const row = [...bases.filter((k) => isSolver(loaded.get(k).run)), ...bases.filter((k) => !isSolver(loaded.get(k).run))];
+  const groups = boardView !== "baselines" ? [[llms, ""]]
+    : comparePos === "above" ? [[llms, llmHead()], [row, groupHead()]] : [[row, groupHead()], [llms, llmHead()]];
+  groups.forEach(([group, head]) => {
+    if (!group.length && head !== llmHead()) return;  // the Compare-with divider stays: it holds the picker
+    root.insertAdjacentHTML("beforeend", head);
+    if (!group.length) return;
+    const grid = document.createElement("div");
+    grid.className = "board-grid";
+    root.appendChild(grid);
+    for (const k of group) buildCard(k, grid);
+  });
+  renderCompare();
+}
+
+function buildCard(k, root) {
+  const g = loaded.get(k);
+  const model = g.run.model;
+  const base = g.run.baseline;
+  const card = document.createElement("div");
+  card.className = "card panel" + (!base ? "" : isSolver(g.run) ? " solver" : " baseline");
+  card.dataset.model = model;
+  card.innerHTML = `
+    <div class="card-head">
+      <div class="card-title"><span class="grip" data-tip="Drag to reorder">${GRIP}</span>${logoHTML(g.run)}<span class="name" data-tip="${esc(nameOf(g.run))}" data-tip-overflow>${esc(nameOf(g.run))}</span>${base ? runInfo(g.run) : ""}</div>
+      <span class="status"></span>
+      <select class="seed" aria-label="Run of ${esc(model)}">${seedOptions(model)}</select>
+    </div>
+    <div class="grid">${"<div class='cell'></div>".repeat(16)}<div class="tiles"></div></div>
+    <div class="stats">
+      <div class="stat"><div class="k">Move</div><div class="v" data-s="move"></div></div>
+      <div class="stat"><div class="k">Model time</div><div class="v" data-s="time"></div></div>
+      <div class="stat"><div class="k">Avg / move</div><div class="v" data-s="avg"></div></div>
+      <div class="stat"><div class="k">Max tile</div><div class="v" data-s="max"></div></div>
+      <div class="stat"><div class="k">Score</div><div class="v" data-s="score"></div></div>
+      <div class="stat"><div class="k">Cost</div><div class="v" data-s="cost"></div></div>
+    </div>
+    <div class="chips"></div>`;
+  card.querySelector("select.seed").addEventListener("change", (ev) => {
+    chosen.set(model, ev.target.value);
+    renderCompare();  // keep the popover's run picks in step
+    syncSelection();
+  });
+  g.card = card;
+  g.layer = card.querySelector(".tiles");
+  makeDraggable(card);
+  root.appendChild(card);
 }
 
 // ---- drag cards to reorder -------------------------------------------------------
@@ -581,7 +816,7 @@ const GRIP = `<svg width="10" height="16" viewBox="0 0 10 16" fill="currentColor
 
 function makeDraggable(card) {
   const head = card.querySelector(".card-head");
-  head.addEventListener("pointerdown", (ev) => { card.draggable = ev.target.tagName !== "SELECT"; });
+  head.addEventListener("pointerdown", (ev) => { card.draggable = !ev.target.closest("select, button"); });
   card.addEventListener("dragstart", (ev) => {
     dragged = card;
     ev.dataTransfer.effectAllowed = "move";
@@ -600,7 +835,7 @@ $("#boards").addEventListener("dragover", (ev) => {
   if (!dragged) return;
   ev.preventDefault();
   const over = ev.target.closest(".card");
-  if (!over || over === dragged) return;
+  if (!over || over === dragged || over.parentNode !== dragged.parentNode) return;  // models and baselines stay apart
   const box = over.getBoundingClientRect();
   const after = ev.clientX > box.left + box.width / 2;  // cards flow in rows: left/right half decides
   const ref = after ? over.nextSibling : over;
@@ -820,7 +1055,7 @@ function updateStats(g) {
   const st = g.card.querySelector(".status");
   const atLatest = !g.final && i >= g.moves.length - 1;
   const live = isLive(runs.find((x) => key(x) === key(g.run)));
-  st.textContent = finished ? g.end.reason.replace("_", " ")
+  st.textContent = finished ? endLabel(g)
     : atLatest ? (live ? "● live" : "incomplete")
     : i < 0 ? "ready" : `${ARROW[m.move]} ${m.move}`;
   st.className = "status " + (finished ? "done" : i >= 0 ? "live" : "");
@@ -878,8 +1113,8 @@ let lbSort = { col: "rank", dir: 1 };  // dir 1 = the column's natural order (e.
 
 const mstone = (r, t) => (r.end.milestones || {})[t];
 const LB_COLS = [  // [id, label, value(r, ctx), cell html(r, ctx), numeric, natural direction (-1 = high first)]
-  ["rank", "#", (r, c) => c.rank.get(key(r)), (r, c) => c.rank.get(key(r)), true, 1],
-  ["model", "Model", (r) => r.model, (r) => `<span class="model-cell">${logoHTML(r)}${esc(r.model)}</span>`, false, 1],
+  ["rank", "#", (r, c) => c.rank.get(key(r)), (r, c) => c.rank.get(key(r)) ?? "–", true, 1],
+  ["model", "Model", (r) => nameOf(r), (r) => `<span class="model-cell">${logoHTML(r)}${esc(nameOf(r))}${r.baseline ? runInfo(r) : ""}</span>`, false, 1],
   ["seed", "Seed", (r) => r.meta.seed, (r) => r.meta.seed, true, 1],
   ["max", "Max tile", (r) => r.end.max_tile, (r) => `<b>${r.end.max_tile}</b>`, true, -1],
   ["score", "Score", (r) => r.end.score, (r) => r.end.score, true, -1],
@@ -891,31 +1126,38 @@ const LB_COLS = [  // [id, label, value(r, ctx), cell html(r, ctx), numeric, nat
   ["cost", "Cost", (r) => r.end.cost, (r) => fmt$(r.end.cost), true, 1],
   ["runs", "Runs", (r, c) => c.by.get(r.model).length, (r, c) => c.by.get(r.model).length, true, -1],
   ["end", "End", (r) => (isLive(r) ? "in progress" : r.end.reason),
-    (r) => (isLive(r) ? '<span class="live-dot"></span>in progress' : esc(r.end.reason)), false, 1],
+    (r) => (isLive(r) ? '<span class="live-dot"></span>in progress' : esc(r.end.reason === "target_tile" ? endLabel(r) : r.end.reason)), false, 1],
 ];
 
 function renderLeaderboard() {
   const by = runsByModel();
-  const rows = lbScope === "best" ? [...by.values()].map(bestRun) : runs.slice();
+  const all = lbScope === "best" ? [...by.values()].map(bestRun) : runs.slice();
+  const rows = all.filter((r) => !r.baseline), bases = all.filter((r) => r.baseline);
+  // only models are ranked; baselines sit under them as reference points
   const rank = new Map(rows.slice().sort((a, b) => better(b, a)).map((r, i) => [key(r), i + 1]));
   const ctx = { by, rank };
   const cols = LB_COLS.filter(([id]) => id !== "runs" || lbScope === "best");
   const [, , value, , , natural] = LB_COLS.find(([id]) => id === lbSort.col);
   const dir = natural * lbSort.dir;
-  rows.sort((a, b) => {
+  const order = (a, b) => {
     const x = value(a, ctx), y = value(b, ctx);
-    if (x == null || y == null) return (x == null) - (y == null);  // missing values always last
-    return (typeof x === "string" ? x.localeCompare(y) : x - y) * dir || ctx.rank.get(key(a)) - ctx.rank.get(key(b));
-  });
-  $("#lb").innerHTML = rows.length ? `
+    if (x == null || y == null) return (x == null) - (y == null) || better(b, a);  // missing values always last
+    return (typeof x === "string" ? x.localeCompare(y) : x - y) * dir || better(b, a);
+  };
+  rows.sort(order);
+  bases.sort(order);
+  const tr = (r) => `<tr data-key="${esc(key(r))}"${!r.baseline ? "" : isSolver(r) ? ' class="solver"' : ' class="baseline"'}>${cols.map(([id, , , cell, num]) =>
+    `<td class="${id === "rank" ? "rank " : ""}${num ? "num" : ""}">${cell(r, ctx)}</td>`).join("")}</tr>`;
+  const group = (list, head) => list.length ? `<tr class="group"><td colspan="${cols.length}">${head}</td></tr>${list.map(tr).join("")}` : "";
+  const baseRows = group(bases, groupHead());
+  $("#lb").innerHTML = all.length ? `
     <table>
       <thead><tr>${cols.map(([id, label, , , num]) => {
         const active = id === lbSort.col;
         const aria = active ? (dir > 0 ? "ascending" : "descending") : "none";
         return `<th class="${num ? "num" : ""}" aria-sort="${aria}"><button class="sort${active ? " on" : ""}" data-col="${id}">${label}<span class="arrow">${active ? (dir > 0 ? "▲" : "▼") : ""}</span></button></th>`;
       }).join("")}</tr></thead>
-      <tbody>${rows.map((r) => `<tr data-key="${esc(key(r))}">${cols.map(([id, , , cell, num]) =>
-        `<td class="${id === "rank" ? "rank " : ""}${num ? "num" : ""}">${cell(r, ctx)}</td>`).join("")}</tr>`).join("")}
+      <tbody>${rows.map(tr).join("")}${baseRows}
       </tbody></table>` : `<div class="empty">No runs yet.</div>`;
 }
 
@@ -933,6 +1175,7 @@ $("#lb").addEventListener("click", (ev) => {
   if (!tr) return;
   const r = runs.find((x) => key(x) === tr.dataset.key);
   chosen.set(r.model, key(r));
+  if (r.baseline) return showView("baselines");
   hidden.delete(r.model);
   saveHidden();
   renderModels();
@@ -940,30 +1183,51 @@ $("#lb").addEventListener("click", (ev) => {
   syncSelection();
 });
 
-document.querySelectorAll(".seg button").forEach((b) => b.addEventListener("click", () => {
+document.querySelectorAll(".lb-head .seg button").forEach((b) => b.addEventListener("click", () => {
   lbScope = b.dataset.scope;
-  document.querySelectorAll(".seg button").forEach((x) => x.setAttribute("aria-selected", x === b));
+  document.querySelectorAll(".lb-head .seg button").forEach((x) => x.setAttribute("aria-selected", x === b));
   renderLeaderboard();
 }));
 
 // ---- tabs ------------------------------------------------------------------------
-function showView(view) {
+// which tab is highlighted and which section shows (no data needed, so it can run before loading)
+function showTabs(view) {
+  document.documentElement.dataset.view = view;
   document.querySelectorAll(".tabs button").forEach((b) => b.setAttribute("aria-selected", b.dataset.view === view));
-  $("#games").hidden = view !== "games";
+  $("#games").hidden = view === "leaderboard";
   $("#leaderboard").hidden = view !== "leaderboard";
-  if (view !== "games" && playing) setPlaying(false);
+  $("#games").classList.toggle("solo", view === "baselines");
+}
+
+function showView(view) {
+  showTabs(view);
   history.replaceState(null, "", view === "games" ? location.pathname + location.search : "#" + view);
+  if (view === "leaderboard") {
+    if (playing) setPlaying(false);
+    return Promise.resolve();
+  }
+  if (view === boardView) return syncSelection();
+  if (playing) setPlaying(false);
+  boardView = view;
+  return syncSelection(true).then(() => { clock = 0; draw(true); });
 }
 document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => showView(b.dataset.view)));
 
 // ---- start -----------------------------------------------------------------------
 async function init() {
+  // open straight on the tab in the URL (#baselines, #leaderboard): set it before the first
+  // render, so a refresh doesn't flash the Games tab first
+  const hash = location.hash.slice(1);
+  const first = ["leaderboard", "baselines"].includes(hash) ? hash : "games";
+  showTabs(first);
+  if (first === "baselines") boardView = "baselines";
   runs = await (await fetch("/api/runs")).json();
   renderModels();
+  renderCompare();
   renderLeaderboard();
   await syncSelection(true);
   setMode();
-  showView(location.hash === "#leaderboard" ? "leaderboard" : "games");
+  await showView(first);
   const q = new URLSearchParams(location.search);
   if (q.has("t")) { clock = +q.get("t"); draw(true); }  // jump to a moment, e.g. ?t=30
   if (q.has("play")) setPlaying(true);

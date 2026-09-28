@@ -48,3 +48,16 @@ def test_invalid_answers_forfeit(tmp_path):
 
     _, summary = run_game(Stubborn(), tmp_path, max_attempts=3)
     assert summary["reason"] == "invalid_moves" and summary["moves"] == 0
+
+
+def test_stop_at_tile_ends_the_game(tmp_path):
+    class Stopper(FakePlayer):
+        stop_at_tile = 16
+
+        def decide(self, board, score, legal, feedback=None):
+            return {"move": legal[0], "raw": legal[0], "latency_s": 0.1, "cost": 0}
+
+    path, summary = run_game(Stopper(), tmp_path, seed=0)
+    moves = [r for r in map(json.loads, path.read_text().splitlines()) if r["type"] == "move"]
+    assert summary["reason"] == "target_tile" and summary["max_tile"] >= 16
+    assert moves[-1]["max_tile"] >= 16 and all(m["max_tile"] < 16 for m in moves[:-1])  # stops right away
