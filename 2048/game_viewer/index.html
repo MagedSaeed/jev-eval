@@ -1,0 +1,986 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>2048 Model Race</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<style>
+:root {
+  --bg: #f6f4ef; --panel: #fffdf8; --ink: #2b2620; --muted: #7d7468; --line: #e4ded3;
+  --accent: #c2410c; --board: #bbada0; --cell: #cdc1b4; --good: #15803d; --bad: #b91c1c;
+  --mono-logo: none; --raised: #ffffff; --shadow: rgb(60 45 30 / .14);
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #161412; --panel: #1f1c19; --ink: #efe9e0; --muted: #9b9185; --line: #332e29;
+          --accent: #fb923c; --board: #4a4139; --cell: #5c524a; --good: #4ade80; --bad: #f87171;
+          --mono-logo: invert(1); --raised: #2a2622; --shadow: rgb(0 0 0 / .45); }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink);
+       font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+/* title left, view switch centred on the page (equal side columns), right side free */
+header { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 16px; padding: 14px 20px 8px; }
+header h1 { margin: 0; font-size: 20px; letter-spacing: -.01em; }
+header .sub { display: block; color: var(--muted); font-size: 12px; margin-top: 1px; }
+@media (max-width: 700px) {
+  header { grid-template-columns: 1fr; padding: 14px 16px 8px; }
+  header .tabs { display: flex; }
+  header .tabs button { flex: 1; }
+}
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+button, select { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line);
+                 border-radius: 6px; padding: 5px 10px; cursor: pointer; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; min-width: 76px; }
+.empty { color: var(--muted); padding: 30px; text-align: center; }
+
+/* tabs + segmented toggles */
+.tabs, .seg { display: inline-flex; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 3px; gap: 2px; }
+.tabs button, .seg button { border: 0; background: transparent; padding: 5px 14px; border-radius: 6px; color: var(--muted); font-weight: 600; }
+.tabs button[aria-selected="true"], .seg button[aria-selected="true"] { background: var(--accent); color: #fff; }
+[hidden] { display: none !important; }
+
+/* tooltips: one shared raised panel, in the page's own panel colours, lifted by a border and a soft shadow */
+#tip { position: fixed; top: 0; left: 0; z-index: 100; max-width: 260px; padding: 6px 9px; border-radius: 7px;
+       background: var(--raised); color: var(--ink); border: 1px solid var(--line); font-size: 12px; line-height: 1.4;
+       pointer-events: none; box-shadow: 0 8px 24px var(--shadow), 0 1px 2px var(--shadow);
+       opacity: 0; transform: translate(var(--x), var(--y)) translate(var(--dx, 0), var(--dy, 4px));
+       transition: opacity .12s ease, transform .12s ease; }
+#tip.on { opacity: 1; --dx: 0; --dy: 0; }
+#tip[data-side="bottom"] { --dy: -4px; }
+#tip[data-side="right"] { --dx: -4px; --dy: 0; }
+#tip.on[data-side] { --dx: 0; --dy: 0; }
+#tip b { display: block; font-weight: 650; }
+#tip .sub { color: var(--muted); font-variant-numeric: tabular-nums; }
+#tip::after { content: ""; position: absolute; width: 8px; height: 8px; background: inherit; border: 1px solid var(--line);
+              border-width: 0 1px 1px 0; border-radius: 0 0 2px 0;
+              left: var(--arrow, 50%); bottom: -5px; transform: translateX(-50%) rotate(45deg); }
+#tip[data-side="bottom"]::after { bottom: auto; top: -5px; border-width: 1px 0 0 1px; border-radius: 2px 0 0 0; }
+#tip[data-side="right"]::after { left: -5px; top: var(--arrow, 50%); bottom: auto; border-width: 0 0 1px 1px;
+                                 border-radius: 0 0 0 2px; transform: translateY(-50%) rotate(45deg); }
+@media (prefers-reduced-motion: reduce) { #tip { transition: opacity .12s ease; } }
+
+/* logos */
+.logo { width: 18px; height: 18px; flex: none; border-radius: 4px; object-fit: contain; }
+.logo.mono { filter: var(--mono-logo); }
+.logo.letter { display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 800;
+               color: #fff; background: var(--muted); }
+
+/* games view */
+.layout { display: grid; grid-template-columns: 250px 1fr; gap: 16px; padding: 8px 20px 24px; }
+@media (max-width: 860px) { .layout { grid-template-columns: 1fr; padding: 8px 16px 24px; } }
+#picker { padding: 10px; align-self: start; position: sticky; top: 10px; max-height: calc(100vh - 20px); overflow: auto; }
+#picker h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 6px 6px 8px; }
+.model-row { display: grid; grid-template-columns: auto auto 1fr; align-items: center; gap: 2px 8px; padding: 7px 6px;
+             border-radius: 6px; cursor: pointer; }
+.model-row:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.model-row .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.model-row .meta { grid-column: 3; color: var(--muted); font-size: 12px; }
+.model-row.off .name, .model-row.off .logo { opacity: .45; }
+.switch { position: relative; width: 28px; height: 16px; border-radius: 99px; background: var(--line); flex: none;
+          grid-row: span 2; transition: background .15s; }
+.switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%;
+                 background: #fff; transition: transform .15s; }
+.model-row input { position: absolute; opacity: 0; pointer-events: none; }
+.model-row input:checked + .switch { background: var(--accent); }
+.model-row input:checked + .switch::after { transform: translateX(12px); }
+.model-row input:focus-visible + .switch { outline: 2px solid var(--accent); outline-offset: 2px; }
+.model-row .logo { grid-row: span 2; }
+/* collapsed sidebar: a slim rail of logos that still toggle their models; the cards take the freed width */
+.layout { transition: grid-template-columns .2s ease; }
+button.icon { border: 0; background: none; padding: 4px 6px; color: var(--muted); line-height: 0; border-radius: 6px; }
+button.icon:hover { color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+button.icon svg { transition: transform .2s; }
+.layout.collapsed { grid-template-columns: 50px 1fr; }
+.collapsed #picker { padding: 6px 4px; }
+.collapsed .picker-head { justify-content: center; }
+.collapsed .picker-head h2, .collapsed #reset-order { display: none; }
+.collapsed #collapse svg { transform: rotate(180deg); }
+.collapsed #models { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.collapsed .model-row { display: flex; position: relative; padding: 7px; }
+.collapsed .model-row .name, .collapsed .model-row .meta, .collapsed .model-row .switch { display: none; }
+.collapsed .model-row .logo { width: 22px; height: 22px; }
+.collapsed .model-row.off .logo { opacity: .3; filter: grayscale(1); }
+.collapsed .model-row.live::after { content: ""; position: absolute; top: 4px; right: 4px; width: 7px; height: 7px;
+                                    border-radius: 50%; background: var(--accent); animation: blink 1.4s ease-in-out infinite; }
+.collapsed .model-row input:focus-visible ~ .logo { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 860px) {  /* stacked layout: the rail becomes a row of logos above the cards */
+  .layout.collapsed { grid-template-columns: 1fr; }
+  .collapsed #picker { display: flex; align-items: center; gap: 6px; }
+  .collapsed #models { flex-direction: row; flex-wrap: wrap; }
+  #collapse svg { transform: rotate(90deg); }
+  .collapsed #collapse svg { transform: rotate(-90deg); }
+}
+
+.controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 10px 12px; margin-bottom: 14px; }
+.controls label { color: var(--muted); display: flex; gap: 6px; align-items: center; }
+#scrub { flex: 1; min-width: 160px; accent-color: var(--accent); }
+#clock { font-variant-numeric: tabular-nums; min-width: 150px; text-align: right; }
+
+#boards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+.card { padding: 12px; transition: opacity .15s, box-shadow .15s; }
+/* drag-to-reorder affordance: a grip that wakes up on hover, a grab cursor on the header,
+   and a dashed placeholder where the dragged card will land */
+.card-head { cursor: grab; border-radius: 6px; margin: -4px -4px 4px; padding: 4px; transition: background .15s; }
+.card-head:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.card-head:active { cursor: grabbing; }
+.card-head select { cursor: pointer; }
+.grip { display: inline-flex; flex: none; color: var(--muted); opacity: .35; margin-right: -2px; transition: opacity .15s, color .15s; }
+.card:hover .grip { opacity: 1; }
+.card-head:hover .grip { color: var(--accent); }
+.card.dragging { opacity: .4; outline: 2px dashed var(--accent); outline-offset: 3px; box-shadow: none; }
+.picker-head { display: flex; align-items: baseline; justify-content: space-between; }
+button.link { border: 0; background: none; padding: 0 6px; color: var(--accent); font-size: 12px; }
+button.link:hover { text-decoration: underline; }
+.card-head { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 6px 8px; margin-bottom: 8px; }
+.card-title { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.card-title .name { font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card-head select.seed { grid-column: 1 / -1; justify-self: end; font-size: 12px; padding: 2px 4px; color: var(--muted); }
+.status { font-size: 11px; padding: 1px 7px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+.status.live { color: var(--accent); border-color: var(--accent); }
+.status.done { color: var(--ink); }
+/* board = static background cells + an absolutely positioned tile layer on top.
+   A tile's outer box slides (translate by --r/--c); its inner .face does the pop/appear scaling. */
+.grid { position: relative; background: var(--board); border-radius: 8px; padding: 6px; display: grid;
+        grid-template-columns: repeat(4, 1fr); grid-template-rows: repeat(4, 1fr); gap: 6px; aspect-ratio: 1; }
+.cell { background: var(--cell); border-radius: 5px; }
+.tiles { position: absolute; inset: 6px; }
+.tile { position: absolute; top: 0; left: 0; width: calc((100% - 18px) / 4); height: calc((100% - 18px) / 4);
+        transform: translate(calc(var(--c) * (100% + 6px)), calc(var(--r) * (100% + 6px))); }
+.tile.sliding { transition: transform var(--dur, 120ms) cubic-bezier(.3, .7, .4, 1); }
+.face { width: 100%; height: 100%; border-radius: 5px; display: flex; align-items: center; justify-content: center;
+        font-weight: 800; font-variant-numeric: tabular-nums; container-type: inline-size; }
+.face span { font-size: 42cqi; }
+.face.d3 span { font-size: 34cqi; } .face.d4 span { font-size: 27cqi; } .face.d5 span { font-size: 22cqi; } .face.d6 span { font-size: 18cqi; }
+.face.spawn { animation: appear .16s ease-out both; }
+.face.merge { animation: merge .16s ease-out; z-index: 1; }
+@keyframes appear { from { transform: scale(0); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+@keyframes merge { 0% { transform: scale(1); } 50% { transform: scale(1.18); } 100% { transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) { .tile.sliding { transition: none; } .face.spawn, .face.merge { animation: none; } }
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px 10px; margin-top: 10px; font-variant-numeric: tabular-nums; }
+.stat .k { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+.stat .v { font-weight: 600; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; min-height: 22px; }
+.chip { font-size: 11px; padding: 1px 6px; border-radius: 4px; background: color-mix(in srgb, var(--accent) 12%, transparent);
+        color: var(--ink); font-variant-numeric: tabular-nums; }
+.chip.big { background: var(--accent); color: #fff; }
+.live-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); margin-right: 4px;
+            vertical-align: 1px; animation: blink 1.4s ease-in-out infinite; }
+@keyframes blink { 50% { opacity: .25; } }
+
+/* leaderboard view */
+#leaderboard { padding: 8px 20px 24px; }
+.lb-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.lb-head p { margin: 0; color: var(--muted); }
+.lb-table { padding: 6px 12px; overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+tbody tr:last-child td { border-bottom: 0; }
+th { color: var(--muted); font-weight: 600; font-size: 12px; }
+td.num, th.num { text-align: right; }
+tbody tr { cursor: pointer; }
+tbody tr:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+td .model-cell { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+td.rank { color: var(--muted); width: 1%; }
+th button.sort { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 3px; }
+th button.sort:hover, th button.sort.on { color: var(--ink); }
+th button.sort:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+th .arrow { font-size: 9px; min-width: 8px; }
+</style>
+</head>
+<body>
+<header>
+  <div><h1>2048 Model Race</h1><span class="sub">Replays of <code>models/*/results</code></span></div>
+  <nav class="tabs" role="tablist">
+    <button role="tab" data-view="games" aria-selected="true">Games</button>
+    <button role="tab" data-view="leaderboard" aria-selected="false">Leaderboard</button>
+  </nav>
+</header>
+
+<div id="games" class="layout">
+  <aside id="picker" class="panel">
+    <div class="picker-head"><h2>Models</h2><span><button id="reset-order" class="link" hidden data-tip="Back to alphabetical order">Reset order</button><button id="collapse" class="icon" aria-expanded="true" aria-label="Collapse sidebar" data-tip="Collapse sidebar" data-tip-side="right"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8.5 3.5 5 7l3.5 3.5"/></svg></button></span></div>
+    <div id="models">Loading…</div>
+  </aside>
+  <main>
+    <div class="controls panel">
+      <button id="play" class="primary">▶ Play</button>
+      <button id="restart" aria-label="Back to start" data-tip="Back to start">⟲</button>
+      <label>Clock
+        <select id="mode">
+          <option value="time">Model time (real speed)</option>
+          <option value="moves">Move by move (lockstep)</option>
+        </select>
+      </label>
+      <label>Speed <select id="speed"></select></label>
+      <input id="scrub" type="range" min="0" max="1000" value="0">
+      <span id="clock">0.0s</span>
+      <label data-tip="Re-read result files every few seconds, so games still being played keep growing"><input type="checkbox" id="live" checked> Live</label>
+    </div>
+    <div id="boards"></div>
+  </main>
+</div>
+
+<section id="leaderboard" hidden>
+  <div class="lb-head">
+    <p># ranks by max tile, then score. Click a column to sort, a row to watch that game.</p>
+    <div class="seg" role="group" aria-label="Rows">
+      <button data-scope="best" aria-selected="true">Best per model</button>
+      <button data-scope="all" aria-selected="false">All runs</button>
+    </div>
+  </div>
+  <div id="lb" class="lb-table panel"></div>
+</section>
+
+<script>
+const TILE = {
+  0: ["", ""], 2: ["#eee4da", "#776e65"], 4: ["#ede0c8", "#776e65"], 8: ["#f2b179", "#f9f6f2"],
+  16: ["#f59563", "#f9f6f2"], 32: ["#f67c5f", "#f9f6f2"], 64: ["#f65e3b", "#f9f6f2"],
+  128: ["#edcf72", "#f9f6f2"], 256: ["#edcc61", "#f9f6f2"], 512: ["#edc850", "#f9f6f2"],
+  1024: ["#edc53f", "#f9f6f2"], 2048: ["#edc22e", "#f9f6f2"],
+};
+const SUPER = ["#3c3a32", "#f9f6f2"];
+const SPEEDS = { time: [1, 2, 5, 10, 25, 100, 500], moves: [1, 2, 5, 10, 25, 100] }; // moves: moves/sec
+const $ = (s) => document.querySelector(s);
+
+let runs = [];               // from /api/runs
+const loaded = new Map();    // run key -> parsed game {run, meta, moves, end, ...}
+let selected = new Set();    // run keys on screen: the chosen run of every visible model
+const chosen = new Map();    // model -> run key picked in its card's seed dropdown
+let playing = false, clock = 0, lastFrame = 0;
+const POLL_MS = 3000;
+const MILESTONES = Array.from({ length: 11 }, (_, k) => 2 ** (k + 7));  // 128 ... 131072
+const LIVE_IDLE_S = 120;  // an unfinished log untouched this long is a dead game, not a live one
+const isLive = (r) => r && r.end.reason === "incomplete" && r.idle_s < LIVE_IDLE_S;
+
+const key = (r) => `${r.model}/${r.file}`;
+const fmtT = (s) => s == null ? "–" : s < 60 ? `${s.toFixed(1)}s` : s < 3600 ? `${Math.floor(s / 60)}m ${String(Math.floor(s % 60)).padStart(2, "0")}s` : `${(s / 3600).toFixed(2)}h`;
+const fmt$ = (c) => c == null ? "–" : c < 0.01 ? `$${c.toFixed(4)}` : `$${c.toFixed(2)}`;
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+
+// ---- tooltips ----------------------------------------------------------------
+// Any element with data-tip gets one. A "\n" splits a bold heading from a muted second line.
+// data-tip-side="right" prefers the right side; data-tip-overflow shows it only when the text is cut off;
+// data-tip-if="<selector>" shows it only inside a matching ancestor. Wide targets anchor at the pointer.
+const tip = Object.assign(document.createElement("div"), { id: "tip", role: "tooltip" });
+document.body.append(tip);
+let tipFor = null, tipTimer = 0, tipClosedAt = 0;
+
+function showTip(el, pointerX) {
+  const text = el.dataset.tip;
+  if (!text || !el.isConnected || (el.dataset.tipIf && !el.closest(el.dataset.tipIf))
+      || (el.hasAttribute("data-tip-overflow") && el.scrollWidth <= el.clientWidth)) return hideTip();
+  const [head, ...rest] = text.split("\n");
+  tip.innerHTML = rest.length ? `<b>${esc(head)}</b><span class="sub">${esc(rest.join(" "))}</span>` : esc(head);
+  const r = el.getBoundingClientRect(), t = tip.getBoundingClientRect(), M = 8, G = 8;
+  const W = document.documentElement.clientWidth, H = document.documentElement.clientHeight;  // minus scrollbars
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(v, hi));
+  let side = el.dataset.tipSide === "right" && r.right + G + t.width <= W - M ? "right" : "top";
+  let x, y, arrow;
+  if (side === "right") {
+    x = r.right + G;
+    y = clamp(r.top + r.height / 2 - t.height / 2, M, H - M - t.height);
+    arrow = r.top + r.height / 2 - y;
+  } else {
+    const ax = r.width > 240 && pointerX != null ? pointerX : r.left + r.width / 2;
+    x = clamp(ax - t.width / 2, M, W - M - t.width);
+    y = r.top - G - t.height;
+    if (y < M) { side = "bottom"; y = r.bottom + G; }
+    arrow = clamp(ax - x, 10, t.width - 10);
+  }
+  // from hidden, jump to the new spot (only fade in); between targets, glide
+  const fresh = !tip.classList.contains("on");
+  if (fresh) tip.style.transition = "none";
+  tip.dataset.side = side;
+  tip.style.setProperty("--x", `${Math.round(x)}px`);
+  tip.style.setProperty("--y", `${Math.round(y)}px`);
+  tip.style.setProperty("--arrow", `${Math.round(arrow)}px`);
+  if (fresh) { void tip.offsetWidth; tip.style.transition = ""; }
+  tip.classList.add("on");
+  el.setAttribute("aria-describedby", "tip");
+}
+
+function hideTip() {
+  clearTimeout(tipTimer);
+  if (tip.classList.contains("on")) tipClosedAt = performance.now();
+  tip.classList.remove("on");
+  if (tipFor) tipFor.removeAttribute("aria-describedby");
+  tipFor = null;
+}
+
+// a short delay before the first tooltip; moving straight on to the next target shows it at once
+document.addEventListener("pointerover", (ev) => {
+  if (ev.pointerType === "touch") return;
+  const el = ev.target.closest("[data-tip]");
+  if (el === tipFor) return;
+  const warm = tip.classList.contains("on") || performance.now() - tipClosedAt < 400;
+  hideTip();
+  if (!el) return;
+  tipFor = el;
+  tipTimer = setTimeout(() => showTip(el, ev.clientX), warm ? 0 : 350);
+});
+document.addEventListener("pointerout", (ev) => { if (!ev.relatedTarget) hideTip(); });
+document.addEventListener("focusin", (ev) => {
+  const el = ev.target.matches(":focus-visible") && ev.target.closest("[data-tip]");
+  if (el) { hideTip(); tipFor = el; showTip(el); }
+});
+document.addEventListener("focusout", hideTip);
+document.addEventListener("pointerdown", hideTip);
+document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") hideTip(); });
+addEventListener("scroll", hideTip, true);
+addEventListener("blur", hideTip);
+
+// ---- models, runs, logos ---------------------------------------------------
+// best run = highest max tile, then highest score (also the card's default seed)
+const better = (a, b) => (a.end.max_tile || 0) - (b.end.max_tile || 0) || (a.end.score || 0) - (b.end.score || 0);
+const bestRun = (list) => list.reduce((b, r) => (better(r, b) > 0 ? r : b));
+
+// Models come out in the user's card order (drag a card header to change it); models not
+// yet placed follow alphabetically. The sidebar and the cards are both built from this.
+const load = (k, dflt) => { try { return JSON.parse(localStorage.getItem(k)) ?? dflt; } catch { return dflt; } };
+const store = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
+let modelOrder = load("modelOrder", []);
+
+function runsByModel() {
+  const by = new Map();
+  for (const r of runs) (by.get(r.model) || by.set(r.model, []).get(r.model)).push(r);
+  const pos = (m) => { const i = modelOrder.indexOf(m); return i < 0 ? Infinity : i; };
+  return new Map([...by].sort(([a], [b]) => pos(a) - pos(b) || a.localeCompare(b)));
+}
+
+// Logos: a logo file in the model's folder wins; otherwise LobeHub's icon for the provider
+// (the part of the OpenRouter model id before "/"); otherwise a lettered badge.
+// https://github.com/lobehub/lobe-icons, pinned so logos can't change under us.
+const LOBE = "https://cdn.jsdelivr.net/npm/@lobehub/icons-static-svg@1.95.1/icons/";
+const PROVIDER_LOGO = {  // provider -> [icon name, monochrome?]
+  qwen: ["qwen-color", false], anthropic: ["claude-color", false], openai: ["openai", true],
+  google: ["gemini-color", false], "x-ai": ["grok", true], deepseek: ["deepseek-color", false],
+  mistralai: ["mistral-color", false], "meta-llama": ["meta-color", false], moonshotai: ["moonshot", true],
+};
+
+function logoHTML(r) {
+  const letter = `<span class="logo letter" aria-hidden="true">${esc(r.model[0].toUpperCase())}</span>`;
+  const [icon, mono] = PROVIDER_LOGO[(r.meta.model_id || "").split("/")[0]] || [];
+  const src = r.local_logo ? `/logos/${encodeURIComponent(r.model)}` : icon ? `${LOBE}${icon}.svg` : null;
+  if (!src) return letter;
+  // offline or unknown icon: fall back to the letter badge
+  return `<img class="logo${mono && !r.local_logo ? " mono" : ""}" src="${src}" alt="" loading="lazy"
+    onerror="this.outerHTML='${letter.replace(/"/g, "&quot;")}'">`;
+}
+
+// per-browser memory of hidden models; storage may be unavailable, so never rely on it
+const hidden = new Set(load("hiddenModels", []));
+const saveHidden = () => store("hiddenModels", [...hidden]);
+
+// collapsible sidebar: collapsed by default; a toggle is remembered per browser
+function setCollapsed(on) {
+  $("#games").classList.toggle("collapsed", on);
+  $("#collapse").setAttribute("aria-expanded", !on);
+  $("#collapse").dataset.tip = on ? "Expand sidebar" : "Collapse sidebar";
+  $("#collapse").setAttribute("aria-label", $("#collapse").dataset.tip);
+}
+setCollapsed(load("pickerCollapsed", true));
+$("#collapse").addEventListener("click", () => {
+  const on = !$("#games").classList.contains("collapsed");
+  setCollapsed(on);
+  store("pickerCollapsed", on);
+});
+
+// ---- sidebar: show/hide models -----------------------------------------------
+function renderModels() {
+  const root = $("#models");
+  const by = runsByModel();
+  $("#reset-order").hidden = !modelOrder.length;
+  if (!by.size) { root.innerHTML = `<div class="empty">No runs yet.<br>Run <code>python play.py</code></div>`; return; }
+  root.innerHTML = "";
+  for (const [model, list] of by) {
+    const best = bestRun(list);
+    const row = document.createElement("label");
+    row.className = "model-row" + (hidden.has(model) ? " off" : "") + (list.some(isLive) ? " live" : "");
+    row.dataset.tip = `${model}\n${list.length} run${list.length > 1 ? "s" : ""} · best ${best.end.max_tile}${list.some(isLive) ? " · playing now" : ""}`;
+    row.dataset.tipSide = "right";
+    row.dataset.tipIf = ".collapsed";  // expanded rows already show all of this
+    row.innerHTML = `<input type="checkbox" ${hidden.has(model) ? "" : "checked"} aria-label="Show ${esc(model)}"><span class="switch"></span>
+      ${logoHTML(best)}<span class="name">${esc(model)}</span>
+      <span class="meta">${list.some(isLive) ? '<span class="live-dot"></span>' : ""}${list.length} run${list.length > 1 ? "s" : ""} · best ${best.end.max_tile}</span>`;
+    row.querySelector("input").addEventListener("change", (ev) => {
+      ev.target.checked ? hidden.delete(model) : hidden.add(model);
+      saveHidden();
+      renderModels();
+      syncSelection();
+    });
+    root.appendChild(row);
+  }
+}
+
+// selected = the chosen run of every visible model. A model's default is its best run;
+// a pick from the card's dropdown sticks until that run disappears.
+async function syncSelection(force = false) {
+  const next = new Set();
+  for (const [model, list] of runsByModel()) {
+    if (!chosen.has(model) || !list.some((r) => key(r) === chosen.get(model))) chosen.set(model, key(bestRun(list)));
+    if (!hidden.has(model)) next.add(chosen.get(model));
+  }
+  const same = !force && next.size === selected.size && [...next].every((k) => selected.has(k));
+  if (same) return refreshSeedMenus();
+  for (const k of next) {
+    if (!loaded.has(k)) {
+      const r = runs.find((x) => key(x) === k);
+      const g = { run: r, meta: null, moves: [], end: r.end, final: false, offset: 0, milestones: {} };
+      await fetchRun(g);
+      loaded.set(k, g);
+    }
+  }
+  selected = next;
+  buildBoards();
+  draw(true);
+}
+
+function seedOptions(model) {
+  const list = runsByModel().get(model) || [];
+  const best = list.length ? key(bestRun(list)) : null;
+  return list.slice().sort((a, b) => a.meta.seed - b.meta.seed || a.file.localeCompare(b.file)).map((r) =>
+    `<option value="${esc(key(r))}" ${key(r) === chosen.get(model) ? "selected" : ""}>seed ${r.meta.seed} · ${r.end.max_tile}${key(r) === best ? " ★" : ""}${isLive(r) ? " ●" : ""}</option>`).join("");
+}
+
+// keep each card's dropdown labels current (max tiles, ★ and live dots change while games run).
+// Options are patched in place, and only when they differ, so a focused or open menu still updates.
+function refreshSeedMenus() {
+  for (const k of selected) {
+    const g = loaded.get(k);
+    const sel = g.card && g.card.querySelector("select.seed");
+    if (!sel) continue;
+    const fresh = document.createElement("select");
+    fresh.innerHTML = seedOptions(g.run.model);
+    const want = [...fresh.options];
+    if (want.length === sel.options.length && want.every((o, i) => o.value === sel.options[i].value)) {
+      want.forEach((o, i) => { if (sel.options[i].text !== o.text) sel.options[i].text = o.text; });
+    } else {  // runs added or removed: rebuild, keeping the current pick
+      const value = sel.value;
+      sel.replaceChildren(...want);
+      sel.value = value;
+    }
+  }
+}
+
+// ---- loading + live refresh ------------------------------------------------
+// A run's log is read incrementally: g.offset is how many bytes are already parsed.
+// Only complete lines are consumed, since a running game may be mid-write.
+const decoder = new TextDecoder();
+
+function ingest(g, buf) {
+  const bytes = new Uint8Array(buf);
+  const cut = bytes.lastIndexOf(10) + 1;  // through the last newline
+  if (!cut) return false;
+  g.offset += cut;
+  for (const line of decoder.decode(bytes.subarray(0, cut)).split("\n")) {
+    if (!line.trim()) continue;
+    const rec = JSON.parse(line);
+    if (rec.type === "meta") g.meta = rec;
+    else if (rec.type === "end") { g.end = rec; g.final = true; }
+    else if (rec.type === "move") {
+      g.moves.push(rec);
+      for (const t of MILESTONES) if (rec.max_tile >= t && !g.milestones[t]) g.milestones[t] = { move: rec.n, t_model: rec.t_model };
+    }
+  }
+  return true;
+}
+
+async function fetchRun(g) {
+  const res = await fetch(`/runs/${g.run.model}/${g.run.file}?offset=${g.offset}`);
+  return res.ok && ingest(g, await res.arrayBuffer());
+}
+
+let polling = false;
+async function poll() {
+  if (polling || !$("#live").checked || document.hidden) return;
+  polling = true;
+  try {
+    const fresh = await (await fetch("/api/runs")).json();
+    if (JSON.stringify(fresh) !== JSON.stringify(runs)) {
+      runs = fresh;
+      renderModels();
+      renderLeaderboard();
+      await syncSelection();  // new models/runs; rebuilds cards only if what's on screen changed
+    }
+    const atEnd = !playing && clockMax() > 0 && clock >= clockMax();  // paused at the live edge: follow it
+    let changed = false;
+    for (const k of selected) {
+      const g = loaded.get(k);
+      if (g.final) continue;
+      const following = g.stepping || g.shown >= g.moves.length - 1;
+      const grew = await fetchRun(g);
+      if (grew && following) {  // play the new batch move by move, done before the next poll
+        g.catchUp = true;
+        g.deadline = performance.now() + CATCHUP_MS;
+      }
+      const r = runs.find((x) => key(x) === k);
+      if (!g.final && r) g.end = r.end;
+      if (grew) { g.dirty = true; changed = true; }
+    }
+    if (changed) {
+      if (atEnd) clock = clockMax();
+      draw();
+    }
+  } catch (e) {
+    console.warn("live refresh failed", e);
+  } finally {
+    polling = false;
+  }
+}
+
+// ---- game cards ----------------------------------------------------------------
+function buildBoards() {
+  for (const g of loaded.values()) resetBoard(g);
+  const root = $("#boards");
+  root.innerHTML = "";
+  if (!selected.size) {
+    root.innerHTML = `<div class="empty panel">${runs.length ? "All models are hidden. Switch some on in the list on the left." : "No runs yet."}</div>`;
+    return;
+  }
+  for (const k of selected) {
+    const g = loaded.get(k);
+    const model = g.run.model;
+    const card = document.createElement("div");
+    card.className = "card panel";
+    card.dataset.model = model;
+    card.innerHTML = `
+      <div class="card-head">
+        <div class="card-title"><span class="grip" data-tip="Drag to reorder">${GRIP}</span>${logoHTML(g.run)}<span class="name" data-tip="${esc(model)}" data-tip-overflow>${esc(model)}</span></div>
+        <span class="status"></span>
+        <select class="seed" aria-label="Run of ${esc(model)}">${seedOptions(model)}</select>
+      </div>
+      <div class="grid">${"<div class='cell'></div>".repeat(16)}<div class="tiles"></div></div>
+      <div class="stats">
+        <div class="stat"><div class="k">Move</div><div class="v" data-s="move"></div></div>
+        <div class="stat"><div class="k">Model time</div><div class="v" data-s="time"></div></div>
+        <div class="stat"><div class="k">Avg / move</div><div class="v" data-s="avg"></div></div>
+        <div class="stat"><div class="k">Max tile</div><div class="v" data-s="max"></div></div>
+        <div class="stat"><div class="k">Score</div><div class="v" data-s="score"></div></div>
+        <div class="stat"><div class="k">Cost</div><div class="v" data-s="cost"></div></div>
+      </div>
+      <div class="chips"></div>`;
+    card.querySelector("select.seed").addEventListener("change", (ev) => {
+      chosen.set(model, ev.target.value);
+      syncSelection();
+    });
+    g.card = card;
+    g.layer = card.querySelector(".tiles");
+    makeDraggable(card);
+    root.appendChild(card);
+  }
+}
+
+// ---- drag cards to reorder -------------------------------------------------------
+// Only the header starts a drag (so the board and the dropdown behave normally). Cards
+// move out of the way live while dragging; the new order is saved on drop.
+let dragged = null;
+
+const GRIP = `<svg width="10" height="16" viewBox="0 0 10 16" fill="currentColor">${[3, 8, 13].map((y) =>
+  `<circle cx="2.5" cy="${y}" r="1.5"/><circle cx="7.5" cy="${y}" r="1.5"/>`).join("")}</svg>`;
+
+function makeDraggable(card) {
+  const head = card.querySelector(".card-head");
+  head.addEventListener("pointerdown", (ev) => { card.draggable = ev.target.tagName !== "SELECT"; });
+  card.addEventListener("dragstart", (ev) => {
+    dragged = card;
+    ev.dataTransfer.effectAllowed = "move";
+    ev.dataTransfer.setData("text/plain", card.dataset.model);
+    requestAnimationFrame(() => card.classList.add("dragging"));
+  });
+  card.addEventListener("dragend", () => {
+    card.classList.remove("dragging");
+    card.draggable = false;
+    dragged = null;
+    saveCardOrder();
+  });
+}
+
+$("#boards").addEventListener("dragover", (ev) => {
+  if (!dragged) return;
+  ev.preventDefault();
+  const over = ev.target.closest(".card");
+  if (!over || over === dragged) return;
+  const box = over.getBoundingClientRect();
+  const after = ev.clientX > box.left + box.width / 2;  // cards flow in rows: left/right half decides
+  const ref = after ? over.nextSibling : over;
+  if (ref === dragged || ref === dragged.nextSibling) return;  // already there
+  // FLIP: note where every card is, move the dragged one, then slide the others from old to new spots
+  const cards = [...document.querySelectorAll("#boards .card")];
+  const before = new Map(cards.map((c) => [c, c.getBoundingClientRect()]));
+  over.parentNode.insertBefore(dragged, ref);
+  if (REDUCED_MOTION) return;
+  for (const c of cards) {
+    if (c === dragged) continue;
+    const a = before.get(c), b = c.getBoundingClientRect();
+    if (a.left !== b.left || a.top !== b.top)
+      c.animate([{ transform: `translate(${a.left - b.left}px, ${a.top - b.top}px)` }, { transform: "none" }],
+                { duration: 180, easing: "cubic-bezier(.3, .7, .4, 1)" });
+  }
+});
+$("#boards").addEventListener("drop", (ev) => ev.preventDefault());
+
+// visible models take the new on-screen order; hidden ones keep their slots
+function saveCardOrder() {
+  const onScreen = [...document.querySelectorAll("#boards .card")].map((c) => c.dataset.model);
+  let i = 0;
+  const next = [...runsByModel().keys()].map((m) => (onScreen.includes(m) ? onScreen[i++] : m));
+  if (next.join() === [...runsByModel().keys()].join()) return;
+  modelOrder = next;
+  store("modelOrder", modelOrder);
+  selected = new Set([...selected].sort((a, b) => next.indexOf(a.split("/")[0]) - next.indexOf(b.split("/")[0])));
+  renderModels();
+}
+
+$("#reset-order").addEventListener("click", () => {
+  modelOrder = [];
+  store("modelOrder", modelOrder);
+  renderModels();
+  syncSelection(true);
+});
+
+// index of the last move visible at the current clock (-1 = initial board)
+function visibleIndex(g) {
+  const mv = g.moves;
+  if ($("#mode").value === "moves") return Math.min(Math.floor(clock), mv.length) - 1;
+  let lo = 0, hi = mv.length;
+  while (lo < hi) { const mid = (lo + hi) >> 1; if (mv[mid].t_model <= clock) lo = mid + 1; else hi = mid; }
+  return lo - 1;
+}
+
+function clockMax() {
+  let m = 0;
+  for (const k of selected) {
+    const g = loaded.get(k);
+    const last = g.moves[g.moves.length - 1];
+    m = Math.max(m, $("#mode").value === "moves" ? g.moves.length : Math.max(last ? last.t_model : 0, g.end.t_model || 0));
+  }
+  return m;
+}
+
+// ---- tile animation -------------------------------------------------------
+// The log stores the board after each move; replaying the move on the previous board
+// (same rules as common/game.py) tells us where every tile slid and which pairs merged.
+const ARROW = { up: "↑", down: "↓", left: "←", right: "→" };
+const SLIDE_MAX_MS = 140, SLIDE_MIN_MS = 40;
+const REDUCED_MOTION = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+// the 4 lines of cells for a move, each ordered from the edge tiles slide toward
+function moveLines(move) {
+  return [0, 1, 2, 3].map((k) => [0, 1, 2, 3].map((j) =>
+    move === "left" ? [k, j] : move === "right" ? [k, 3 - j] : move === "up" ? [j, k] : [3 - j, k]));
+}
+
+function slidePaths(board, move) {
+  const paths = [], merged = new Set();
+  for (const line of moveLines(move)) {
+    const out = [];  // tiles already placed on this line: {v, merged}
+    for (const [r, c] of line) {
+      const v = board[r][c];
+      if (!v) continue;
+      const last = out[out.length - 1];
+      if (last && last.v === v && !last.merged) {  // merge into the previous tile's slot
+        last.merged = true;
+        const to = line[out.length - 1];
+        merged.add(to[0] * 4 + to[1]);
+        paths.push({ v, from: [r, c], to });
+      } else {
+        out.push({ v, merged: false });
+        paths.push({ v, from: [r, c], to: line[out.length - 1] });
+      }
+    }
+  }
+  return { paths, merged };
+}
+
+function tileEl(v, r, c, cls = "") {
+  const [bg, fg] = v > 2048 ? SUPER : TILE[v] || SUPER;
+  const t = document.createElement("div");
+  t.className = "tile";
+  t.style.setProperty("--r", r);
+  t.style.setProperty("--c", c);
+  t.innerHTML = `<div class="face d${String(v).length} ${cls}" style="background:${bg};color:${fg}"><span>${v}</span></div>`;
+  return t;
+}
+
+// spawn / merged mark tiles that should pop in (only right after an animated slide)
+function renderBoard(g, board, spawn, merged) {
+  g.layer.replaceChildren();
+  board.forEach((row, r) => row.forEach((v, c) => {
+    if (!v) return;
+    const cls = spawn && spawn[0] === r && spawn[1] === c ? "spawn" : merged && merged.has(r * 4 + c) ? "merge" : "";
+    g.layer.appendChild(tileEl(v, r, c, cls));
+  }));
+}
+
+function animateMove(g, prevBoard, m, ms) {
+  const { paths, merged } = slidePaths(prevBoard, m.move);
+  g.layer.replaceChildren();
+  const els = paths.map((p) => {
+    const t = tileEl(p.v, p.from[0], p.from[1]);
+    t.style.setProperty("--dur", `${ms}ms`);
+    g.layer.appendChild(t);
+    return [t, p.to];
+  });
+  void g.layer.offsetWidth;  // commit start positions so the transition runs
+  for (const [t, [r, c]] of els) {
+    t.classList.add("sliding");
+    t.style.setProperty("--r", r);
+    t.style.setProperty("--c", c);
+  }
+  g.animTimer = setTimeout(() => renderBoard(g, m.board, m.spawn, merged), ms);
+}
+
+// slide duration for stepping onto move i: a share of the real time until that board's
+// next move, capped; 0 (snap) when moves come too fast to animate or motion is reduced
+function slideMs(g, i) {
+  if (REDUCED_MOTION) return 0;
+  let gap = Infinity;
+  if (playing) {
+    const speed = +$("#speed").value;
+    if ($("#mode").value === "moves") gap = 1000 / speed;
+    else if (g.moves[i + 1]) gap = ((g.moves[i + 1].t_model - g.moves[i].t_model) / speed) * 1000;
+  }
+  const ms = Math.min(SLIDE_MAX_MS, gap * 0.7);
+  return ms >= SLIDE_MIN_MS ? ms : 0;
+}
+
+// Live catch-up: polling delivers a fast model's moves in batches (e.g. 2 moves per poll
+// at ~1.5s/move). A board that was showing its latest move plays such a batch one move at
+// a time, each animated, spread over roughly one poll interval, instead of snapping.
+// Jumps the viewer causes itself (scrubbing, ?t=, very high speeds) still snap.
+const CATCHUP_MAX = 20;                      // bigger bursts (e.g. a tab left in the background) snap
+const CATCHUP_MS = POLL_MS;                  // spread a batch over one poll interval (next batch extends it)
+const STEP_MIN_MS = 180, STEP_MAX_MS = 700;  // spacing between catch-up steps
+
+const prevBoard = (g, i) => (i > 0 ? g.moves[i - 1].board : g.meta.board);
+
+// forget what's on screen (next draw renders from scratch) and cancel pending animation/catch-up
+function resetBoard(g) {
+  clearTimeout(g.animTimer);
+  clearTimeout(g.stepTimer);
+  g.stepping = false;
+  g.catchUp = false;
+  g.shown = -2;
+}
+
+function stepToward(g) {
+  const target = visibleIndex(g);
+  if (g.shown >= target) {  // caught up (or the user moved the clock back)
+    g.stepping = false;
+    g.catchUp = false;
+    if (g.shown > target) drawBoard(g, true);
+    return;
+  }
+  g.stepping = true;
+  // spread the remaining steps evenly up to the batch deadline (set when the batch arrived)
+  const left = (g.deadline || 0) - performance.now();
+  const spacing = Math.max(STEP_MIN_MS, Math.min(STEP_MAX_MS, left / (target - g.shown)));
+  const i = ++g.shown;
+  animateMove(g, prevBoard(g, i), g.moves[i], REDUCED_MOTION ? 0 : Math.min(SLIDE_MAX_MS, spacing * 0.7));
+  updateStats(g);
+  g.stepTimer = setTimeout(() => stepToward(g), spacing);
+}
+
+function drawBoard(g, force = false) {
+  const i = visibleIndex(g);
+  const boardChanged = force || i !== g.shown;
+  if (!boardChanged && !g.dirty) return;
+  g.dirty = false;
+  // an unfinished catch-up owns the board while the target is still ahead of it
+  if (boardChanged && !(g.stepping && !force && i > g.shown)) {
+    clearTimeout(g.animTimer);
+    clearTimeout(g.stepTimer);
+    g.stepping = false;
+    const behind = i - g.shown;
+    if (!force && g.catchUp && behind > 1 && behind <= CATCHUP_MAX) return stepToward(g);
+    g.catchUp = false;
+    const stepForward = behind === 1;
+    g.shown = i;
+    const m = i >= 0 ? g.moves[i] : null;
+    const dur = stepForward && m ? slideMs(g, i) : 0;
+    if (dur) animateMove(g, prevBoard(g, i), m, dur);
+    else renderBoard(g, m ? m.board : g.meta.board, null, null);
+  }
+  updateStats(g);
+}
+
+// stats describe the board on screen (g.shown), which trails the clock during a catch-up
+function updateStats(g) {
+  const i = g.shown;
+  const m = i >= 0 ? g.moves[i] : null;
+  const finished = g.final && i >= g.moves.length - 1;
+  const set = (s, v) => (g.card.querySelector(`[data-s=${s}]`).textContent = v);
+  set("move", `${i + 1} / ${g.moves.length}`);
+  set("time", fmtT(m ? m.t_model : 0));
+  set("avg", m ? `${(m.t_model / m.n).toFixed(2)}s` : "–");
+  set("max", m ? m.max_tile : Math.max(...g.meta.board.flat()));
+  set("score", m ? m.score : 0);
+  set("cost", fmt$(m ? m.cost : 0));
+  const st = g.card.querySelector(".status");
+  const atLatest = !g.final && i >= g.moves.length - 1;
+  const live = isLive(runs.find((x) => key(x) === key(g.run)));
+  st.textContent = finished ? g.end.reason.replace("_", " ")
+    : atLatest ? (live ? "● live" : "incomplete")
+    : i < 0 ? "ready" : `${ARROW[m.move]} ${m.move}`;
+  st.className = "status " + (finished ? "done" : i >= 0 ? "live" : "");
+  const moveMode = $("#mode").value === "moves";
+  g.card.querySelector(".chips").innerHTML = Object.entries(g.milestones)
+    .filter(([, v]) => v.move <= i + 1)
+    .map(([tile, v]) => `<span class="chip ${+tile >= 2048 ? "big" : ""}">${tile} @ ${moveMode ? "move " + v.move : fmtT(v.t_model)}</span>`)
+    .join("");
+}
+
+function draw(force = false) {
+  for (const k of selected) drawBoard(loaded.get(k), force);
+  const moveMode = $("#mode").value === "moves";
+  const max = clockMax();
+  $("#scrub").value = max ? Math.round((clock / max) * 1000) : 0;
+  $("#clock").textContent = moveMode ? `move ${Math.floor(clock)} / ${max}` : `${fmtT(clock)} / ${fmtT(max)}`;
+}
+
+function frame(ts) {
+  if (!playing) return;
+  const dt = lastFrame ? (ts - lastFrame) / 1000 : 0;
+  lastFrame = ts;
+  clock += dt * +$("#speed").value;
+  const max = clockMax();
+  if (clock >= max) { clock = max; setPlaying(false); }
+  draw();
+  requestAnimationFrame(frame);
+}
+
+function setPlaying(on) {
+  playing = on;
+  $("#play").textContent = on ? "❚❚ Pause" : "▶ Play";
+  if (on) {
+    if (clock >= clockMax()) clock = 0;
+    lastFrame = 0;
+    requestAnimationFrame(frame);
+  }
+}
+
+function setMode() {
+  const mode = $("#mode").value;
+  const unit = mode === "time" ? "×" : " moves/s";
+  $("#speed").innerHTML = SPEEDS[mode].map((s) => `<option value="${s}">${s}${unit}</option>`).join("");
+  $("#speed").value = 5;
+  clock = 0;
+  for (const g of loaded.values()) resetBoard(g);
+  draw(true);
+}
+
+// ---- leaderboard -----------------------------------------------------------------
+// Every column is sortable (click a header; click again to reverse). "#" is always the
+// official rank (max tile, then score) whatever the current sort, so standing stays visible.
+let lbScope = "best";
+let lbSort = { col: "rank", dir: 1 };  // dir 1 = the column's natural order (e.g. best first)
+
+const mstone = (r, t) => (r.end.milestones || {})[t];
+const LB_COLS = [  // [id, label, value(r, ctx), cell html(r, ctx), numeric, natural direction (-1 = high first)]
+  ["rank", "#", (r, c) => c.rank.get(key(r)), (r, c) => c.rank.get(key(r)), true, 1],
+  ["model", "Model", (r) => r.model, (r) => `<span class="model-cell">${logoHTML(r)}${esc(r.model)}</span>`, false, 1],
+  ["seed", "Seed", (r) => r.meta.seed, (r) => r.meta.seed, true, 1],
+  ["max", "Max tile", (r) => r.end.max_tile, (r) => `<b>${r.end.max_tile}</b>`, true, -1],
+  ["score", "Score", (r) => r.end.score, (r) => r.end.score, true, -1],
+  ["moves", "Moves", (r) => r.end.moves, (r) => r.end.moves, true, -1],
+  ["avg", "Avg / move", (r) => r.end.avg_move_s, (r) => (r.end.avg_move_s ? r.end.avg_move_s.toFixed(2) + "s" : "–"), true, 1],
+  ["tmax", "Time to max", (r) => mstone(r, String(r.end.max_tile))?.t_model, (r) => fmtT(mstone(r, String(r.end.max_tile))?.t_model), true, 1],
+  ["t2048", "Time to 2048", (r) => mstone(r, "2048")?.t_model, (r) => fmtT(mstone(r, "2048")?.t_model), true, 1],
+  ["invalid", "Invalid", (r) => r.end.failed_attempts, (r) => r.end.failed_attempts ?? "–", true, 1],
+  ["cost", "Cost", (r) => r.end.cost, (r) => fmt$(r.end.cost), true, 1],
+  ["runs", "Runs", (r, c) => c.by.get(r.model).length, (r, c) => c.by.get(r.model).length, true, -1],
+  ["end", "End", (r) => (isLive(r) ? "in progress" : r.end.reason),
+    (r) => (isLive(r) ? '<span class="live-dot"></span>in progress' : esc(r.end.reason)), false, 1],
+];
+
+function renderLeaderboard() {
+  const by = runsByModel();
+  const rows = lbScope === "best" ? [...by.values()].map(bestRun) : runs.slice();
+  const rank = new Map(rows.slice().sort((a, b) => better(b, a)).map((r, i) => [key(r), i + 1]));
+  const ctx = { by, rank };
+  const cols = LB_COLS.filter(([id]) => id !== "runs" || lbScope === "best");
+  const [, , value, , , natural] = LB_COLS.find(([id]) => id === lbSort.col);
+  const dir = natural * lbSort.dir;
+  rows.sort((a, b) => {
+    const x = value(a, ctx), y = value(b, ctx);
+    if (x == null || y == null) return (x == null) - (y == null);  // missing values always last
+    return (typeof x === "string" ? x.localeCompare(y) : x - y) * dir || ctx.rank.get(key(a)) - ctx.rank.get(key(b));
+  });
+  $("#lb").innerHTML = rows.length ? `
+    <table>
+      <thead><tr>${cols.map(([id, label, , , num]) => {
+        const active = id === lbSort.col;
+        const aria = active ? (dir > 0 ? "ascending" : "descending") : "none";
+        return `<th class="${num ? "num" : ""}" aria-sort="${aria}"><button class="sort${active ? " on" : ""}" data-col="${id}">${label}<span class="arrow">${active ? (dir > 0 ? "▲" : "▼") : ""}</span></button></th>`;
+      }).join("")}</tr></thead>
+      <tbody>${rows.map((r) => `<tr data-key="${esc(key(r))}">${cols.map(([id, , , cell, num]) =>
+        `<td class="${id === "rank" ? "rank " : ""}${num ? "num" : ""}">${cell(r, ctx)}</td>`).join("")}</tr>`).join("")}
+      </tbody></table>` : `<div class="empty">No runs yet.</div>`;
+}
+
+$("#lb").addEventListener("click", (ev) => {
+  const b = ev.target.closest("button.sort");
+  if (!b) return;
+  ev.stopPropagation();
+  lbSort = lbSort.col === b.dataset.col ? { col: b.dataset.col, dir: -lbSort.dir } : { col: b.dataset.col, dir: 1 };
+  renderLeaderboard();
+});
+
+// clicking a leaderboard row opens that exact run in the games view
+$("#lb").addEventListener("click", (ev) => {
+  const tr = ev.target.closest("tr[data-key]");
+  if (!tr) return;
+  const r = runs.find((x) => key(x) === tr.dataset.key);
+  chosen.set(r.model, key(r));
+  hidden.delete(r.model);
+  saveHidden();
+  renderModels();
+  showView("games");
+  syncSelection();
+});
+
+document.querySelectorAll(".seg button").forEach((b) => b.addEventListener("click", () => {
+  lbScope = b.dataset.scope;
+  document.querySelectorAll(".seg button").forEach((x) => x.setAttribute("aria-selected", x === b));
+  renderLeaderboard();
+}));
+
+// ---- tabs ------------------------------------------------------------------------
+function showView(view) {
+  document.querySelectorAll(".tabs button").forEach((b) => b.setAttribute("aria-selected", b.dataset.view === view));
+  $("#games").hidden = view !== "games";
+  $("#leaderboard").hidden = view !== "leaderboard";
+  if (view !== "games" && playing) setPlaying(false);
+  history.replaceState(null, "", view === "games" ? location.pathname + location.search : "#" + view);
+}
+document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => showView(b.dataset.view)));
+
+// ---- start -----------------------------------------------------------------------
+async function init() {
+  runs = await (await fetch("/api/runs")).json();
+  renderModels();
+  renderLeaderboard();
+  await syncSelection(true);
+  setMode();
+  showView(location.hash === "#leaderboard" ? "leaderboard" : "games");
+  const q = new URLSearchParams(location.search);
+  if (q.has("t")) { clock = +q.get("t"); draw(true); }  // jump to a moment, e.g. ?t=30
+  if (q.has("play")) setPlaying(true);
+  setInterval(poll, POLL_MS);
+}
+
+$("#play").onclick = () => setPlaying(!playing);
+$("#restart").onclick = () => { clock = 0; draw(true); };
+$("#mode").onchange = setMode;
+$("#scrub").oninput = (e) => { clock = (e.target.value / 1000) * clockMax(); draw(); };
+document.addEventListener("keydown", (e) => {
+  if (e.code === "Space" && !["INPUT", "SELECT", "BUTTON"].includes(e.target.tagName) && !$("#games").hidden) {
+    e.preventDefault();
+    setPlaying(!playing);
+  }
+});
+init();
+</script>
+</body>
+</html>

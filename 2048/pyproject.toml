@@ -1,0 +1,15 @@
+[project]
+name = "jev-eval-2048"
+version = "0.1.0"
+description = "LLM 2048 benchmark: jev vs. other models"
+requires-python = ">=3.11"
+dependencies = ["openai>=1.40", "httpx", "tqdm"]
+
+[dependency-groups]
+dev = ["pytest"]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

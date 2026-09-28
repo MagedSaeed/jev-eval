@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- a 2x2 slice of a 2048 board in the game's tile colours: 2, 4, 8 and a gold 2048 -->
+  <rect width="32" height="32" rx="7" fill="#bbada0"/>
+  <rect x="3" y="3" width="12" height="12" rx="3" fill="#eee4da"/>
+  <rect x="17" y="3" width="12" height="12" rx="3" fill="#ede0c8"/>
+  <rect x="3" y="17" width="12" height="12" rx="3" fill="#f59563"/>
+  <rect x="17" y="17" width="12" height="12" rx="3" fill="#edc22e"/>
+</svg>
